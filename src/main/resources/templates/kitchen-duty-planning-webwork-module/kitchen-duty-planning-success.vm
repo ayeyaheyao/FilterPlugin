@@ -1,0 +1,331 @@
+<html>
+<head>
+    <title>Filter Plugin</title>
+    <meta name="decorator" content="atl.admin">
+
+    <style>
+        table, td {
+            border: 1px solid black;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="select-container"></div>
+    <div id="select-filter"></div>
+    
+    <button id="getFilter" onclick="GenerateFilters();">Get Filters</button>
+    <button id="getIssues" onclick="UserAction(filtersList.value);">Get Issues</button>
+
+    <select id="filtersList"></select>
+
+    <script>
+        var count2 = 0;
+
+        var rolesLink = new Array();
+        function GenerateFilters(){	
+
+            var xhttp = new XMLHttpRequest();
+            xhttp.open("GET","http://localhost:2990/jira/rest/gadget/1.0/pickers/filters", false); // Filtrelerin isimlerini döndürür.
+            xhttp.setRequestHeader("Content-type", "application/json");
+            xhttp.send();
+            var response = JSON.parse(xhttp.responseText);
+
+            var dropdown = document.getElementById('filtersList');
+            if(count2 >=1){
+                select.innerHTML = "";
+            }
+
+            for(i=0; i<response.filters.length; i++){
+                dropdown.options.add(new Option(response.filters[i].name, response.filters[i].id)); // Filtrelerin adlarını select liste atar   	
+            }
+
+            count2+=1;
+            
+            // ROLES START
+            var xhttp2 = new XMLHttpRequest();
+            xhttp2.open("GET","http://localhost:2990/jira/rest/api/2/project/TES", false);// Proje ile ilgili bilgilere erişiyoruz.
+            xhttp2.setRequestHeader("Content-type", "application/json");
+            xhttp2.send();
+            var response2 = JSON.parse(xhttp2.responseText);        
+            
+            // Roller birer opbje olarak kayıtlı tutulduğu için bunların kaç obje içerdiğini çekmek için bu for döngüsünü kullanıyoruz
+            var result = 0;
+            for(var prop in response2.roles){
+                if(response2.roles.hasOwnProperty(prop)){
+                    result ++;
+                }
+            }
+
+            console.log("Result count: "+result);
+            // Daha sonra ne kadar rol varsa bu rollerin linklerini rolesLink dizimize push ediyoruz.
+            for(i=0;i<result;i++){
+
+                rolesLink.push(response2.roles[Object.keys(response2.roles)[i]]);  
+                console.log("Roles Link: "+response2.roles[Object.keys(response2.roles)[i]]);
+            }    
+            // ROLES END           
+        }
+
+        var count = 0;
+
+        function ExtractURL(id){
+            
+            var xhttp = new XMLHttpRequest();
+            
+            console.log("ExtractURL() http://localhost:2990/jira/rest/api/2/filter/" + id);
+            xhttp.open("GET","http://localhost:2990/jira/rest/api/2/filter/" + id, false);
+            
+            xhttp.setRequestHeader("Content-type", "application/json");
+            xhttp.send();
+            
+            var response = JSON.parse(xhttp.responseText);
+            console.log("ExtractURL "+response.searchUrl);
+            return response.searchUrl;
+
+        }
+        var role = new Array();
+        function UserAction(id) {
+            
+            var query = ExtractURL(id); // Aldığı filtre adını ExtractURL fonksiyonuna yollar.
+
+            var xhttp = new XMLHttpRequest();
+            xhttp.open("GET",query, false);
+            xhttp.setRequestHeader("Content-type", "application/json");
+            xhttp.send();
+            var response = JSON.parse(xhttp.responseText);
+
+            
+            // Oluşturduğumuz obje fonksiyonu içerisinde issue ile ilgili bilgileri tutuyoruz.
+            function issueListObj(){        
+                function assignee() {
+                    this.name = new Array();
+                    this.groups = new Array(); 
+                    this.roles = new Array();
+                }
+                this.assignee = new assignee();
+                this.key = new Array();
+                this.summary = new Array();
+                this.created = new Array();
+                this.issueType = new Array();
+                this.status = new Array();
+                this.groups = new Array();
+                
+            }
+            var groups = new Array ();
+            var rolesArr = new Array ();
+            var issueList = new issueListObj();
+
+
+
+            console.log("Issues length "+response.issues.length);
+            for(i = 0; i<response.issues.length; i++){
+                issueList.key.push(response.issues[i].key);
+                issueList.summary.push(response.issues[i].fields.summary);
+                issueList.created.push(response.issues[i].fields.created);
+                issueList.issueType.push(response.issues[i].fields.issuetype.name);
+                
+                if(response.issues[i].fields.status === null){
+                    issueList.status.push("-");
+                }
+                else {
+                    issueList.status.push(response.issues[i].fields.status.name);  
+
+                }        
+                
+                if(response.issues[i].fields.assignee === null){
+                    issueList.assignee.name.push("unassignee");
+                    issueList.assignee.groups.push("unassignee");
+                    issueList.assignee.roles.push("unassignee");
+                }
+                else {
+                    issueList.assignee.name.push(response.issues[i].fields.assignee.name);
+                    var xhttp2=new XMLHttpRequest();
+                    console.log("IssueList Assignee: http://localhost:2990/jira/rest/api/2/user?username="+response.issues[i].fields.assignee.name+"&expand=groups");
+                    xhttp2.open("GET","http://localhost:2990/jira/rest/api/2/user?username="+response.issues[i].fields.assignee.name+"&expand=groups", false);
+                    xhttp2.setRequestHeader("Content-type", "application/json");
+                    xhttp2.send();
+                    var response2 = JSON.parse(xhttp2.responseText);
+                    console.log("Group Size: "+response2.groups.size);
+                    for(j=0;j<response2.groups.size;j++){
+                        console.log("Group name: "+response2.groups.items[j].name);
+                        groups.push(response2.groups.items[j].name);                            
+
+                    }            
+                    issueList.assignee.groups.push(groups);
+                    groups = [];
+
+                    //ROLES
+                    for(j=0;j<rolesLink.length;j++){
+                        console.log("Roles Link: "+rolesLink[j]);
+                        var query2 = ExtractRoles(rolesLink[j]);
+                        var xhttp3 = new XMLHttpRequest();
+                        console.log("Group name: http://localhost:2990/jira/rest/api/2/group?groupname="+query2+"&expand=users");
+                        xhttp3.open("GET","http://localhost:2990/jira/rest/api/2/group?groupname="+query2+"&expand=users", false);
+                        xhttp3.setRequestHeader("Content-type", "application/json");
+                        xhttp3.send();
+                        var response2 = JSON.parse(xhttp3.responseText);
+                        
+                        for(k=0;k<response2.users.items.length;k++){
+                            console.log("1- "+issueList.assignee.name);
+                            console.log("2- "+response2.users.items[k].name);
+                            if(response2.users.items[k].name === issueList.assignee.name[i]){
+                                rolesArr.push(role[role.length-1]);
+                                role = [];    
+                            }
+                        }
+                        
+                    }
+                    issueList.assignee.roles.push(rolesArr);
+                    rolesArr = [];
+                    
+                    //ROLES
+                }
+                    
+            }
+
+            
+            
+            var table = document.getElementById("myTable");
+
+            if(count >=1){
+                table.innerHTML = "";
+            }
+
+
+            var row;
+            var row2;
+            var cell;
+            var cell2;
+            var cell3;
+            var cell4;
+            var cell5;
+            var cell6;
+            var cell7;
+            var cell8;
+
+            row = table.insertRow(0);        
+            cell = row.insertCell(0);
+            cell.innerHTML = "Key";    	
+            cell2 = row.insertCell(1);
+            cell2.innerHTML= "Summary";    
+            cell3 = row.insertCell(2);
+            cell3.innerHTML="Created";    
+            cell4 = row.insertCell(3);
+            cell4.innerHTML="Assignee";
+            cell5 = row.insertCell(4);
+            cell5.innerHTML="IssueType";
+            cell6 = row.insertCell(5);
+            cell6.innerHTML="Status";
+            cell7 = row.insertCell(6);
+            cell7.innerHTML="User's Groups";
+            cell8 = row.insertCell(7);
+            cell8.innerHTML="Project Roles";
+
+
+            for(i = 0; i<response.issues.length; i++){    	
+                row = table.insertRow(1);
+                cell = row.insertCell(0);        
+                cell.innerHTML = "<p><a href=\"http://localhost:2990/jira/browse/"+issueList.key[i]+"\">"+" "+issueList.key[i]+"</a></p>";
+                cell2 = row.insertCell(1);        
+                cell2.innerHTML =issueList.summary[i];
+                cell3 = row.insertCell(2);        
+                cell3.innerHTML =issueList.created[i];
+                cell4 = row.insertCell(3);
+                cell4.innerHTML="<p><a href=\"http://localhost:2990/jira/secure/admin/user/ViewUser.jspa?atl_token=B7E3-Z04W-BS95-TT7E%7Cf60d1bbf2ed527f35cdc3b8b561f2edb08d480fb%7Clin&name="+issueList.assignee.name[i]+"\">"+" "+issueList.assignee.name[i]+"</a></p>";
+                cell5 = row.insertCell(4);
+                cell5.innerHTML=issueList.issueType[i];
+                cell6 = row.insertCell(5);
+                cell6.innerHTML=issueList.status[i];
+                cell7 = row.insertCell(6);
+                cell7.innerHTML=issueList.assignee.groups[i];
+                cell8 = row.insertCell(7);
+                cell8.innerHTML=issueList.assignee.roles[i];
+            }
+
+            count +=1;
+            rolesLink = [];
+            
+            
+
+
+        }
+    /* 
+    var count3 = 0;
+        function GenerateRoles(){	
+
+            var xhttp3 = new XMLHttpRequest();
+            xhttp3.open("GET","http://localhost:2990/jira/rest/api/2/project/TES", false);
+            xhttp3.setRequestHeader("Content-type", "application/json");
+            xhttp3.send();
+            var response3 = JSON.parse(xhttp3.responseText);
+
+            var dropdown = document.getElementById('rolesList');
+            if(count3 >=1){
+                select.innerHTML = "";
+            }
+
+            
+            var result = 0;
+            for(var prop in response3.roles){
+                if(response3.roles.hasOwnProperty(prop)){
+                    result ++;
+                }
+            }
+            console.log(result);
+
+            for(i=0;i<result;i++){
+                dropdown.options.add(new Option(response3.roles[Object.keys(response3.roles)[i]]));  
+
+            }
+
+            
+
+            count3 += 1;
+        }
+    */
+        
+        function ExtractRoles(id){
+            //var role = new Array();
+            var xhttp = new XMLHttpRequest();
+            
+            xhttp.open("GET",id, false);
+            
+            xhttp.setRequestHeader("Content-type", "application/json");
+            xhttp.send();
+            
+            var response = JSON.parse(xhttp.responseText);
+            console.log("Proje Roles "+response.actors[0].name);
+            role.push(response.name);
+            return response.actors[0].name;
+        }
+
+    /*
+
+        function UserRoles(id) {       
+    
+            var query = ExtractRoles(id);
+            var xhttp = new XMLHttpRequest();
+            xhttp.open("GET","http://localhost:2990/jira/rest/api/2/group?groupname="+query+"&expand=users", false);
+            xhttp.setRequestHeader("Content-type", "application/json");
+            xhttp.send();
+            var response = JSON.parse(xhttp.responseText);
+    
+            console.log("1- "+response.users.size);
+            for(i=0;i<response.users.items.length;i++){
+                console.log("1- "+response.users.items[i].displayName);
+            }
+            
+    
+        }
+    */
+
+
+    </script>
+
+    <table id="myTable">
+        
+    </table>
+
+</body>
+</html>
